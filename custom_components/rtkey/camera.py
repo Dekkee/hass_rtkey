@@ -15,7 +15,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     cameras_info = await cameras_api.get_cameras_info()
     entities = [
         RTKeyCamera(hass, config_entry, cameras_api, camera_info)
-        for camera_info in cameras_info["data"]["items"]
+        for camera_info in cameras_info["data"]
     ]
     async_add_entities(entities)
 
@@ -33,7 +33,7 @@ class RTKeyCamera(Camera):
         self.hass = hass
         self.config_entry_id = config_entry.entry_id
         self.cameras_api = cameras_api
-        self.camera_id = camera_info["id"]
+        self.camera_id = camera_info["uid"]
         self.device_name = cameras_api.build_device_name(camera_info["title"])
         self.entity_id = (
             DOMAIN

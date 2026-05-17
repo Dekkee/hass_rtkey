@@ -3,7 +3,7 @@
     "name": "rtkey",
     "documentation": "https://github.com/artgl/hass_rtkey",
     "iot_class": "cloud_polling",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "requirements": ["transliterate", "pyjwt"],
     "config_flow": true
 }

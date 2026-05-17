@@ -64,6 +64,8 @@ class RTKeyCamerasApi:
         self.cached_camera_images = {}
         self.cached_intercoms_info = None
         self.cached_intercoms_info_timestamp = None
+        self.cached_barriers_info = None
+        self.cached_barriers_info_timestamp = None
         self.camera_image_locks = {}
         self.camera_image_tasks = {}
         self.camera_image_refresh_interval = config_entry.options[
@@ -79,7 +81,7 @@ class RTKeyCamerasApi:
             r = await self.hass.async_add_executor_job(
                 functools.partial(
                     requests.get,
-                    "https://vc.key.rt.ru/api/v1/cameras?limit=100&offset=0",
+                    "https://keyapis.key.rt.ru/vc/api/v1/camera_video_data/list?paging.limit=100&paging.offset=0",
                     headers={"Authorization": f"Bearer {self.token}"},
                     allow_redirects=True,
                 )
@@ -90,18 +92,18 @@ class RTKeyCamerasApi:
             self.cached_cameras_info = json.loads(r.content)
             self.cached_cameras_info_timestamp = int(time.time())
 
-            for camera_info in self.cached_cameras_info["data"]["items"]:
+            for camera_info in self.cached_cameras_info["data"]:
                 decoded_screenshot_token = jwt.decode(
-                    camera_info["screenshot_token"], options={"verify_signature": False}
+                    camera_info["screenshotToken"], options={"verify_signature": False}
                 )
-                camera_info["screenshot_token_exp"] = decoded_screenshot_token["exp"]
+                camera_info["screenshotTokenExp"] = decoded_screenshot_token["exp"]
 
                 decoded_streamer_token = jwt.decode(
-                    camera_info["streamer_token"], options={"verify_signature": False}
+                    camera_info["streamerToken"], options={"verify_signature": False}
                 )
-                camera_info["streamer_token_exp"] = decoded_streamer_token["exp"]
+                camera_info["streamerTokenExp"] = decoded_streamer_token["exp"]
 
-                camera_id = camera_info["id"]
+                camera_id = camera_info["uid"]
                 if camera_id not in self.cached_camera_images:
                     self.cached_camera_images[camera_id] = None
                 if camera_id not in self.camera_image_locks:
@@ -119,8 +121,8 @@ class RTKeyCamerasApi:
 
     async def get_camera_info(self, camera_id: str) -> dict | None:
         cameras_info = await self.get_cameras_info()
-        for camera_info in cameras_info["data"]["items"]:
-            if camera_info["id"] == camera_id:
+        for camera_info in cameras_info["data"]:
+            if camera_info["uid"] == camera_id:
                 return camera_info
         return None
 
@@ -130,7 +132,7 @@ class RTKeyCamerasApi:
         now = int(time.time())
         if (
             camera_info
-            and (camera_info["screenshot_token_exp"] - now) < TOKEN_REFRESH_BUFFER
+            and (camera_info["screenshotTokenExp"] - now) < TOKEN_REFRESH_BUFFER
         ):
             await self.clear_cached_cameras_info()
             camera_info = await self.get_camera_info(camera_id)
@@ -144,8 +146,8 @@ class RTKeyCamerasApi:
                 return self.cached_camera_images[camera_id]
 
             size = "large"
-            url = camera_info["screenshot_url_template"].format(
-                timestamp=now, size=size, cdn_token=camera_info["screenshot_token"]
+            url = camera_info["screenshotUrlTemplate"].format(
+                timestamp=now, size=size, cdn_token=camera_info["screenshotToken"]
             )
             _LOGGER.info("Fetching %s", url)
             r = await self.hass.async_add_executor_job(
@@ -153,7 +155,7 @@ class RTKeyCamerasApi:
                     requests.get,
                     url,
                     allow_redirects=True,
-                    headers={"X-UTOKEN": camera_info["user_token"]},
+                    headers={"X-UTOKEN": camera_info["userToken"]},
                 )
             )
             _LOGGER.info(r)
@@ -173,7 +175,7 @@ class RTKeyCamerasApi:
         now = int(time.time())
         if (
             camera_info
-            and (camera_info["streamer_token_exp"] - now) < TOKEN_REFRESH_BUFFER
+            and (camera_info["streamerTokenExp"] - now) < TOKEN_REFRESH_BUFFER
         ):
             await self.clear_cached_cameras_info()
             camera_info = await self.get_camera_info(camera_id)
@@ -181,8 +183,8 @@ class RTKeyCamerasApi:
         if not camera_info:
             return None
 
-        camera_netloc = urlparse(camera_info["streamer_url"]).netloc
-        streamer_token = camera_info["streamer_token"]
+        camera_netloc = urlparse(camera_info["streamerUrl"]).netloc
+        streamer_token = camera_info["streamerToken"]
         return f"https://{camera_netloc}/stream/{camera_id}/live.mp4?mp4-fragment-length=0.5&mp4-use-speed=0&mp4-afiller=1&token={streamer_token}"
 
     async def clear_cached_camera_image(self, camera_id: str, ttl: int) -> None:
@@ -219,9 +221,31 @@ class RTKeyCamerasApi:
 
             return self.cached_intercoms_info
 
-    async def open_intercom(self, intercom_id) -> None:
+    async def get_barriers_info(self) -> dict:
         async with self.lock:
-            url = f"https://household.key.rt.ru/api/v2/app/devices/{intercom_id}/open"
+            if self.cached_barriers_info:
+                _LOGGER.info("Using cached barriers info")
+                return self.cached_barriers_info
+
+            r = await self.hass.async_add_executor_job(
+                functools.partial(
+                    requests.get,
+                    "https://household.key.rt.ru/api/v2/app/devices/barrier",
+                    headers={"Authorization": f"Bearer {self.token}"},
+                    allow_redirects=True,
+                )
+            )
+            _LOGGER.info(r)
+            _LOGGER.info(r.content)
+
+            self.cached_barriers_info = json.loads(r.content)
+            self.cached_barriers_info_timestamp = int(time.time())
+
+            return self.cached_barriers_info
+
+    async def open_device(self, device_id) -> None:
+        async with self.lock:
+            url = f"https://household.key.rt.ru/api/v2/app/devices/{device_id}/open"
             _LOGGER.info("Fetching %s", url)
             r = await self.hass.async_add_executor_job(
                 functools.partial(
