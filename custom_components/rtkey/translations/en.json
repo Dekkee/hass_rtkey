@@ -7,7 +7,17 @@
           "token": "Access token",
           "camera_image_refresh_interval": "Camera image refresh interval (sec)"
         }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate with key.rt.ru",
+        "description": "Access token expired or was rejected. Paste a new bearer token from https://key.rt.ru/main/pwa/dashboard.",
+        "data": {
+          "token": "Access token"
+        }
       }
+    },
+    "abort": {
+      "reauth_successful": "Re-authentication was successful"
     }
   },
   "options": {

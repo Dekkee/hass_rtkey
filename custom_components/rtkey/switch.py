@@ -1,5 +1,4 @@
 import asyncio
-import re
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
@@ -11,7 +10,7 @@ from . import DOMAIN, RTKeyCamerasApi
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    cameras_api = hass.data[config_entry.entry_id]["cameras_api"]
+    cameras_api = hass.data[DOMAIN][config_entry.entry_id]["cameras_api"]
     entities = []
 
     intercoms_info = await cameras_api.get_intercoms_info()
@@ -59,27 +58,28 @@ class RTKeySwitchEntity(SwitchEntity):
             self.device_name = self.cameras_api.build_device_name(
                 device_info["name_by_company"]
             )
-        self.entity_id = (
-            DOMAIN
-            + "."
-            + re.sub("[^a-zA-z0-9]+", "_", self.device_name).rstrip("_").lower()
-        )
-        self._attr_unique_id = f"switch-{self.entity_id}"
+        self._attr_unique_id = f"{self.config_entry_id}_switch_{self.device_id}"
         self._attr_name = self.device_name
         self._attr_is_on = False
+        self._auto_off_task: asyncio.Task | None = None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the entity on."""
         await self.cameras_api.open_device(self.device_id)
         self._attr_is_on = True
-        self.auto_turn_off_task = asyncio.create_task(self.auto_turn_off())
+        if self._auto_off_task and not self._auto_off_task.done():
+            self._auto_off_task.cancel()
+        self._auto_off_task = asyncio.create_task(self.auto_turn_off())
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the entity off."""
         self._attr_is_on = False
 
     async def auto_turn_off(self) -> None:
-        await asyncio.sleep(5)
+        try:
+            await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            return
         self._attr_is_on = False
         await self.hass.services.async_call(
             "homeassistant",
@@ -87,6 +87,10 @@ class RTKeySwitchEntity(SwitchEntity):
             {"entity_id": self.entity_id},
             blocking=False,
         )
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._auto_off_task and not self._auto_off_task.done():
+            self._auto_off_task.cancel()
 
     @property
     def device_info(self) -> DeviceInfo:
